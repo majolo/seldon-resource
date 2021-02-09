@@ -26,6 +26,8 @@ helm install seldon-core seldon-core-operator \
 ### Running
 Can optionally provide a `--file` flag to provide the filepath of a `.json` resource definition.
 
+Also the logging of "list the Kubernetes Events with descriptions" is quite verbose, so is disabled by default and can be enabled using `--eventsLogging`.
+
 ```go run main.go```
 
 ## Further work

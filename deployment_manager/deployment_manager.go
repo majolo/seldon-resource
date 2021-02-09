@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
+	"k8s.io/client-go/kubernetes"
+	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 
 	seldon_v1_api "github.com/seldonio/seldon-core/operator/apis/machinelearning.seldon.io/v1"
 	seldon_v1_client "github.com/seldonio/seldon-core/operator/client/machinelearning.seldon.io/v1/clientset/versioned"
 	seldon_typed_v1 "github.com/seldonio/seldon-core/operator/client/machinelearning.seldon.io/v1/clientset/versioned/typed/machinelearning.seldon.io/v1"
+	core_v1 "k8s.io/api/core/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
@@ -23,6 +28,7 @@ const (
 
 type SeldonDeploymentManager struct {
 	SeldonDeployment seldon_typed_v1.SeldonDeploymentInterface
+	Events           v1.EventInterface
 }
 
 func NewSeldonDeploymentManagerFromFlags(kubeConfigPath string, namespace string) (*SeldonDeploymentManager, error) {
@@ -34,12 +40,17 @@ func NewSeldonDeploymentManagerFromFlags(kubeConfigPath string, namespace string
 }
 
 func NewSeldonDeploymentManager(config *rest.Config, namespace string) (*SeldonDeploymentManager, error) {
-	clientset, err := seldon_v1_client.NewForConfig(config)
+	seldonClientset, err := seldon_v1_client.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
 	return &SeldonDeploymentManager{
-		SeldonDeployment: clientset.MachinelearningV1().SeldonDeployments(namespace),
+		SeldonDeployment: seldonClientset.MachinelearningV1().SeldonDeployments(namespace),
+		Events:           clientset.CoreV1().Events(namespace),
 	}, nil
 }
 
@@ -99,9 +110,26 @@ func (s *SeldonDeploymentManager) WatchDeploymentForReadyReplicas(name string, r
 						return nil
 					}
 				}
-				log.Printf("Got event for deployment (%s), event type (%v), current deployment status (%v)\n", name, event.Type, dpl.Status.State)
+				log.Printf("Waiting on deployment (%s), event type (%v), current deployment status (%v)\n", name, event.Type, dpl.Status.State)
 			}
 		case <-time.After(operationTimeout):
+			return errors.New(fmt.Sprintf("watcher timed out after %v", operationTimeout))
+		}
+	}
+}
+
+func (s *SeldonDeploymentManager) WatchKubernetesEvents() error {
+	watcher, err := s.Events.Watch(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	for {
+		select {
+		case event := <-watcher.ResultChan():
+			if k8sEvent, ok := event.Object.(*core_v1.Event); ok && strings.Contains(k8sEvent.Name, "seldon") {
+				log.Printf("KUBERNETES EVENT: Reason: %s Object: %s Message: %s\n", k8sEvent.Reason, k8sEvent.InvolvedObject.Name, k8sEvent.Message)
+			}
+		case <-time.After(operationTimeout*3):
 			return errors.New(fmt.Sprintf("watcher timed out after %v", operationTimeout))
 		}
 	}

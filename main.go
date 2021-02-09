@@ -13,6 +13,7 @@ import (
 
 func main() {
 	resourceFilepath := flag.String("file", "seldon-deployment.json", "supply the filepath to a seldon deployment resource")
+	enableEventsLogging := flag.Bool("eventsLogging", false, "whether to log k8s events")
 	flag.Parse()
 
 	// Initialise deployment manager and target deployment
@@ -27,6 +28,11 @@ func main() {
 	dpl, err := openSeldonDeploymentJson(*resourceFilepath)
 	if err != nil {
 		panic(err)
+	}
+
+	// Initialise kubernetes event watcher
+	if *enableEventsLogging {
+		go manager.WatchKubernetesEvents()
 	}
 
 	// Run sequence of create, watch, update, watch, delete, watch
