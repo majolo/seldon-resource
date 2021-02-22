@@ -31,8 +31,9 @@ func main() {
 	}
 
 	// Initialise kubernetes event watcher
+	quit := make(chan bool)
 	if *enableEventsLogging {
-		go manager.WatchKubernetesEvents()
+		go manager.WatchKubernetesEvents(quit)
 	}
 
 	// Run sequence of create, watch, update, watch, delete, watch

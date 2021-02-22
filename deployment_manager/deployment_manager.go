@@ -118,7 +118,7 @@ func (s *SeldonDeploymentManager) WatchDeploymentForReadyReplicas(name string, r
 	}
 }
 
-func (s *SeldonDeploymentManager) WatchKubernetesEvents() error {
+func (s *SeldonDeploymentManager) WatchKubernetesEvents(c <-chan bool) error {
 	watcher, err := s.Events.Watch(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return err
@@ -129,8 +129,10 @@ func (s *SeldonDeploymentManager) WatchKubernetesEvents() error {
 			if k8sEvent, ok := event.Object.(*core_v1.Event); ok && strings.Contains(k8sEvent.Name, "seldon") {
 				log.Printf("KUBERNETES EVENT: Reason: %s Object: %s Message: %s\n", k8sEvent.Reason, k8sEvent.InvolvedObject.Name, k8sEvent.Message)
 			}
-		case <-time.After(operationTimeout*3):
+		case <-time.After(operationTimeout * 3):
 			return errors.New(fmt.Sprintf("watcher timed out after %v", operationTimeout))
+		case <-c:
+			return nil
 		}
 	}
 }
